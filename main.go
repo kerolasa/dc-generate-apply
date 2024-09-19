@@ -11,6 +11,12 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
+	"time"
+
+	"github.com/mattn/go-isatty"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 type parameters struct {
@@ -26,11 +32,24 @@ type parameters struct {
 }
 
 func main() {
+	if isatty.IsTerminal(os.Stderr.Fd()) {
+		log.Logger = log.Output(
+			zerolog.ConsoleWriter{
+				Out:        os.Stderr,
+				TimeFormat: time.RFC3339,
+			},
+		)
+	}
+	zerolog.CallerMarshalFunc = func(_ uintptr, file string, line int) string {
+		return file + ":" + strconv.Itoa(line)
+	}
+	log.Logger = log.With().Caller().Logger()
+
 	var params parameters
 
 	// Command line option handling
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [options] <./template.json> <example.com>\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s [options] -cmd.privatekey ./key.pem ./template.json example.com\n", os.Args[0])
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "See also https://github.com/Domain-Connect/spec/blob/master/Domain%%20Connect%%20Spec%%20Draft.adoc\n")
 	}
@@ -44,34 +63,25 @@ func main() {
 	params.key = flag.String("param.key", "", "key query parameter")
 	params.privateKeyPath = flag.String("cmd.privatekey", "", "path to private key file, this generates 'sig', see https://exampleservice.domainconnect.org/sig")
 	performVersionComparison := flag.Bool("cmd.checkversions", true, "compare template file and service provider version")
+	loglevel := flag.String("loglevel", "info", "loglevel can be one of: panic fatal error warn info debug trace")
 	flag.Parse()
 
+	level, err := zerolog.ParseLevel(*loglevel)
+	if err != nil {
+		log.Fatal().Err(err).Msg("invalid loglevel")
+	}
+	zerolog.SetGlobalLevel(level)
+
 	if flag.NArg() < 2 {
-		fmt.Println("not enough arguments, try --help")
-		os.Exit(1)
+		log.Fatal().Msg("not enough arguments, try --help")
 	}
 
-	template, err := readTemplate(flag.Arg(0))
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
+	template := readTemplate(flag.Arg(0))
 
-	settings, err := getSettings(flag.Arg(1))
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
+	settings := getSettings(flag.Arg(1))
 
 	if *performVersionComparison {
-		if ok, err := compareVersions(template, settings); err != nil || !ok {
-			if err != nil {
-				fmt.Println(err)
-			} else {
-				fmt.Printf("version mismatch")
-			}
-			os.Exit(1)
-		}
+		compareVersions(template, settings)
 	}
 
 	kvMap := fromCmdline(*params.kvs)

@@ -12,9 +12,13 @@ import (
 	"math/rand/v2"
 	"os"
 	"strings"
+
+	"github.com/rs/zerolog/log"
 )
 
 func fromCmdline(s string) map[string]string {
+	log.Debug().Str("arg", s).Msg("parse -param.kvs argument")
+
 	kvMap := make(map[string]string)
 	parts := strings.Split(s, "%")
 
@@ -27,6 +31,7 @@ func fromCmdline(s string) map[string]string {
 			k = v
 			continue
 		}
+		log.Trace().Str("key", k).Str("value", v).Msg("storing command line kv")
 		kvMap[k] = v
 		k = ""
 	}
@@ -35,6 +40,8 @@ func fromCmdline(s string) map[string]string {
 }
 
 func crossReference(template Template, kvs map[string]string, groupId string) map[string]string {
+	log.Debug().Msg("cross referencing kvs")
+
 	checked := make(map[string]string)
 
 	findKeys(template.ProviderName, kvs, &checked)
@@ -59,6 +66,7 @@ func crossReference(template Template, kvs map[string]string, groupId string) ma
 }
 
 func findKeys(s string, kvs map[string]string, checked *map[string]string) {
+	log.Trace().Str("s", s).Msg("find keys")
 	parts := strings.Split(s, "%")
 
 	for i, key := range parts {
@@ -84,8 +92,6 @@ func randSeq(n int) string {
 }
 
 func printApply(fqdn string, template Template, settings Settings, params *parameters, kvs map[string]string) {
-	fmt.Printf("%s/v2/domainTemplates/providers/%s/services/%s/apply?", settings.URLSyncUX, template.ProviderID, template.ServiceID)
-
 	apply := "domain=" + fqdn
 
 	if *params.host != "" {
@@ -114,53 +120,46 @@ func printApply(fqdn string, template Template, settings Settings, params *param
 
 	// signature generation must happen last
 	if params.privateKeyPath != nil {
-		key, err := getPrivateKey(*params.privateKeyPath)
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
-		sig, err := signPayload(key, apply)
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
+		key := getPrivateKey(*params.privateKeyPath)
+		sig := signPayload(key, apply)
 		apply = apply + "&sig=" + sig
 	}
 
+	fmt.Printf("%s/v2/domainTemplates/providers/%s/services/%s/apply?", settings.URLSyncUX, template.ProviderID, template.ServiceID)
 	fmt.Printf("%s\n", apply)
 }
 
-func getPrivateKey(pathToKey string) (any, error) {
+func getPrivateKey(pathToKey string) any {
 	keyBytes, err := os.ReadFile(pathToKey)
 	if err != nil {
-		return nil, err
+		log.Fatal().Err(err).Msg("cannot read file")
 	}
 	keyBlock, _ := pem.Decode(keyBytes)
 	if keyBlock == nil {
-		return nil, err
+		log.Fatal().Err(err).Str("file", pathToKey).Msg("cannot decode key")
 	}
 	key, err := x509.ParsePKCS8PrivateKey(keyBlock.Bytes)
 	if err != nil {
-		return nil, err
+		log.Fatal().Err(err).Str("file", pathToKey).Msg("cannot parse x509")
 	}
-	return key, nil
+	return key
 }
 
-func signPayload(key any, apply string) (string, error) {
+func signPayload(key any, apply string) string {
 	msgHash := sha256.New()
 	_, err := msgHash.Write([]byte(apply))
 	if err != nil {
-		return "", err
+		log.Fatal().Err(err).Msg("could not generate hash")
 	}
 	hashSum := msgHash.Sum(nil)
 	var signature []byte
 	if privateKey, ok := key.(*rsa.PrivateKey); ok {
 		signature, err = rsa.SignPKCS1v15(crand.Reader, privateKey, crypto.SHA256, hashSum)
 		if err != nil {
-			return "", err
+			log.Fatal().Err(err).Msg("rsa sign failed")
 		}
 	} else {
-		return "", fmt.Errorf("not rsa key")
+		log.Fatal().Msg("not a rsa key")
 	}
-	return base64.StdEncoding.EncodeToString(signature), nil
+	return base64.StdEncoding.EncodeToString(signature)
 }
