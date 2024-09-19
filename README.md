@@ -1,11 +1,11 @@
 ## Domain Connect generate template apply url
 
 This tool demonstrates to Service Providers how to generate a
-(Domain Connect)[https://github.com/Domain-Connect/spec/blob/master/Domain%20Connect%20Spec%20Draft.adoc]
+[Domain Connect](https://github.com/Domain-Connect/spec/blob/master/Domain%20Connect%20Spec%20Draft.adoc)
 apply url targetting a DNS Provider.
 
 Notice that you need a private key to generate signature.  See
-(signature help page)[https://exampleservice.domainconnect.org/sig]
+[signature help page](https://exampleservice.domainconnect.org/sig)
 how to generate a private key.
 
 ```
